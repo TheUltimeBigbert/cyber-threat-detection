@@ -1,0 +1,6 @@
+feature1,feature2,feature3,threat_label
+0,10,5,0
+1,15,3,1
+0,10,6,0
+1,20,8,1
+1,25,2,1
