@@ -13,21 +13,22 @@ const ThreatDetection = () => {
     useEffect(() => {
         const loadDataset = async () => {
             try {
-                const response = await fetch("http://localhost:8000/static/cleaned_data_top_10.csv");
+                const response = await fetch("http://localhost:8000/static/cleaned_data_with_details.csv");
                 const csvText = await response.text();
                 Papa.parse(csvText, {
                     header: true,
                     dynamicTyping: true,
                     complete: (results) => {
-                        const filteredData = results.data.map(row => {
-                            return Object.fromEntries(Object.entries(row).slice(0, 10));
-                        });
-                        setDataset(filteredData);
-                        console.log("Dataset loaded:", filteredData); 
+                        // Filter out rows with missing or invalid data
+                        const validData = results.data.filter(row => 
+                            row && Object.keys(row).length > 0 && !Object.values(row).every(val => val === null)
+                        );
+                        setDataset(validData);
+                        console.log("Dataset loaded:", validData);
                     },
                 });
             } catch (error) {
-                console.error("Error loading dataset:", error); 
+                console.error("Error loading dataset:", error);
                 toast.error("Error loading dataset");
             }
         };
@@ -42,18 +43,17 @@ const ThreatDetection = () => {
                 features: inputArray
             });
 
-            const detectionResult = response.data.prediction;
-            const resultText = detectionResult === 1 ? "Threat Detected" : "Safe";
+            const { prediction, source_ip, destination_ip, attack_type } = response.data;
+            const resultText = attack_type === "Safe" ? "Safe" : attack_type;
             setResult(resultText);
             toast.success(`Result: ${resultText}`);
 
             setDetectedThreats(prevThreats => [
                 ...prevThreats,
-                { features: inputArray, result: resultText, timestamp: new Date().toLocaleString() }
+                { features: inputArray, result: resultText, source_ip, destination_ip, attack_type, timestamp: new Date().toLocaleString() }
             ]);
 
-
-            if (detectionResult === 1) {
+            if (attack_type !== "Safe") {
                 setTotalThreats(prevCount => prevCount + 1);
             }
         } catch (error) {
@@ -68,7 +68,7 @@ const ThreatDetection = () => {
                 // Randomly select a row from the dataset
                 const randomIndex = Math.floor(Math.random() * dataset.length);
                 const randomRow = dataset[randomIndex];
-                const inputArray = Object.values(randomRow).slice(0, 10).map(Number); 
+                const inputArray = Object.values(randomRow).slice(0, -4).map(Number); 
                 console.log("Selected random row:", randomRow); 
                 console.log("Converted input array:", inputArray);
                 handleDetectThreat(inputArray);
@@ -83,31 +83,39 @@ const ThreatDetection = () => {
     return (
         <div className="container">
             <h2>Cyber Threat Detection</h2>
-            {result && <h3>Detection Result: {result}</h3>}
+            {result && (
+                <h3 className={result === "Safe" ? "text-success" : "text-danger"}>
+                    Detection Result: {result}
+                </h3>
+            )}
             <ToastContainer />
 
-            {/* Display count of detected threats */}
             <h3>Total Detected Threats: {totalThreats}</h3>
 
-            {/* Display detected threats in a table */}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Features</th>
-                        <th>Result</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {detectedThreats.map((threat, index) => (
-                        <tr key={index}>
-                            <td>{threat.timestamp}</td>
-                            <td>{threat.features.join(", ")}</td>
-                            <td>{threat.result}</td>
+            <div className="table-responsive">
+                <table className="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Source IP</th>
+                            <th>Destination IP</th>
+                            <th>Attack Type</th>
+                            <th>Status</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {detectedThreats.map((threat, index) => (
+                            <tr key={index} className={threat.attack_type === "Safe" ? "table-success" : "table-danger"}>
+                                <td>{threat.timestamp}</td>
+                                <td>{threat.source_ip}</td>
+                                <td>{threat.destination_ip}</td>
+                                <td>{threat.attack_type}</td>
+                                <td>{threat.result}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 };
