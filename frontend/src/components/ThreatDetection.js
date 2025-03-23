@@ -68,17 +68,20 @@ const ThreatDetection = () => {
                 // Randomly select a row from the dataset
                 const randomIndex = Math.floor(Math.random() * dataset.length);
                 const randomRow = dataset[randomIndex];
-                const inputArray = Object.values(randomRow).slice(0, -4).map(Number); 
-                console.log("Selected random row:", randomRow); 
-                console.log("Converted input array:", inputArray);
-                handleDetectThreat(inputArray);
+                
+                // Send the original attack label
+                const attackLabel = randomRow.original_attack_label;
+                console.log("Selected random row:", randomRow);
+                console.log("Attack label:", attackLabel);
+                
+                handleDetectThreat([attackLabel]);
             } else {
-                console.log("Dataset is empty"); 
+                console.log("Dataset is empty");
             }
         }, 5000);
 
-        return () => clearInterval(interval); // Clear interval on component unmount
-    }, [dataset]); 
+        return () => clearInterval(interval);
+    }, [dataset]);
 
     return (
         <div className="container">
