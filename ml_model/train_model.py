@@ -137,7 +137,7 @@ if __name__ == "__main__":
         raise ValueError("Dataset is empty or preprocessing failed.")
 
     # Pass ip_columns to split_and_scale_data
-    X_train, X_test, y_train, y_test, X_train_scaled, X_test_scaled, scaler = split_and_scale_data(X, y_encoded, ip_columns)
+    X_train, X_test, y_train, y_test, X_train_scaled, X_tKest_scaled, scaler = split_and_scale_data(X, y_encoded, ip_columns)
 
     best_model, best_model_name = train_and_evaluate(X_train, X_test, X_train_scaled, X_test_scaled, y_train, y_test, le)
 
