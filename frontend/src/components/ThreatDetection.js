@@ -43,14 +43,14 @@ const ThreatDetection = () => {
                 features: inputArray
             });
 
-            const { prediction, source_ip, destination_ip, attack_type } = response.data;
+            const { prediction, source_ip, destination_ip, attack_type, severity } = response.data;
             const resultText = attack_type === "Safe" ? "Safe" : attack_type;
             setResult(resultText);
             toast.success(`Result: ${resultText}`);
 
             setDetectedThreats(prevThreats => [
                 ...prevThreats,
-                { features: inputArray, result: resultText, source_ip, destination_ip, attack_type, timestamp: new Date().toLocaleString() }
+                { features: inputArray, result: resultText, source_ip, destination_ip, attack_type, severity, timestamp: new Date().toLocaleString() }
             ]);
 
             if (attack_type !== "Safe") {
@@ -65,14 +65,14 @@ const ThreatDetection = () => {
     useEffect(() => {
         const interval = setInterval(() => {
             if (dataset.length > 0) {
-                // Randomly select a row from the dataset
                 const randomIndex = Math.floor(Math.random() * dataset.length);
                 const randomRow = dataset[randomIndex];
                 
-                // Send the original attack label
+                // Send both attack label and severity
                 const attackLabel = randomRow.original_attack_label;
                 console.log("Selected random row:", randomRow);
                 console.log("Attack label:", attackLabel);
+                console.log("Severity:", randomRow.attack_severity);  // Changed from Severity to attack_severity
                 
                 handleDetectThreat([attackLabel]);
             } else {
@@ -103,16 +103,23 @@ const ThreatDetection = () => {
                             <th>Source IP</th>
                             <th>Destination IP</th>
                             <th>Attack Type</th>
+                            <th>Severity</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         {detectedThreats.map((threat, index) => (
-                            <tr key={index} className={threat.attack_type === "Safe" ? "table-success" : "table-danger"}>
+                            <tr key={index} className={
+                                threat.severity === 'High' ? 'table-danger' :
+                                threat.severity === 'Medium' ? 'table-warning' :
+                                threat.severity === 'Low' ? 'table-info' :
+                                'table-success'
+                            }>
                                 <td>{threat.timestamp}</td>
                                 <td>{threat.source_ip}</td>
                                 <td>{threat.destination_ip}</td>
                                 <td>{threat.attack_type}</td>
+                                <td>{threat.severity}</td>
                                 <td>{threat.result}</td>
                             </tr>
                         ))}
