@@ -90,20 +90,28 @@ async def predict(features: Features):
         # Get the attack label from the input
         attack_label = features.features[0] if features.features else "Unknown"
         
-        # Get a random row from the dataset matching the attack type, preferring unique IP combinations
+        # Get a random row from the dataset matching the attack type
         matching_rows = df_details[df_details["Attack Type"] == attack_label]
         
         if not matching_rows.empty:
-            # Group by IP pairs and sample one group randomly
-            ip_groups = matching_rows.groupby(['Source IP', 'Destination IP'])
-            random_group = np.random.choice(list(ip_groups.groups.keys()))
-            random_row = ip_groups.get_group(random_group).sample(n=1).iloc[0]
-            source_ip = random_row["Source IP"]
-            destination_ip = random_row["Destination IP"]
-            attack_type = random_row["Attack Type"]
-            # Try to get severity with original column name
-            severity = random_row.get("Severity", "Unknown")  # Use get() method with default value
-            logging.info(f"Found severity: {severity}")
+            # Convert IP pairs to a list of tuples for proper sampling
+            ip_pairs = list(zip(matching_rows['Source IP'], matching_rows['Destination IP']))
+            if ip_pairs:
+                # Randomly select one IP pair
+                random_pair = ip_pairs[np.random.randint(0, len(ip_pairs))]
+                # Get the corresponding row
+                random_row = matching_rows[
+                    (matching_rows['Source IP'] == random_pair[0]) & 
+                    (matching_rows['Destination IP'] == random_pair[1])
+                ].iloc[0]
+                
+                source_ip = random_pair[0]
+                destination_ip = random_pair[1]
+                attack_type = random_row["Attack Type"]
+                severity = random_row.get("Severity", "Unknown")
+                logging.info(f"Found severity: {severity}")
+            else:
+                raise ValueError("No valid IP pairs found")
         else:
             source_ip = "Unknown"
             destination_ip = "Unknown"

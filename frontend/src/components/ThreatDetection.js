@@ -44,20 +44,32 @@ const ThreatDetection = () => {
             });
 
             const { prediction, source_ip, destination_ip, attack_type, severity } = response.data;
-            const resultText = attack_type === "Safe" ? "Safe" : attack_type;
+            const resultText = attack_type === "BENIGN" ? "Safe" : attack_type;
             setResult(resultText);
-            toast.success(`Result: ${resultText}`);
 
+            // Only show toast for actual threats
+            if (resultText !== "Safe") {
+                toast.warning(`Threat Detected: ${resultText}`);
+            }
+
+            // Add new threat to the list with all available information
             setDetectedThreats(prevThreats => [
-                ...prevThreats,
-                { features: inputArray, result: resultText, source_ip, destination_ip, attack_type, severity, timestamp: new Date().toLocaleString() }
-            ]);
+                {
+                    timestamp: new Date().toLocaleString(),
+                    source_ip,
+                    destination_ip,
+                    attack_type,
+                    severity,
+                    result: resultText
+                },
+                ...prevThreats
+            ].slice(0, 100)); // Keep only the last 100 threats
 
-            if (attack_type !== "Safe") {
+            if (attack_type !== "BENIGN") {
                 setTotalThreats(prevCount => prevCount + 1);
             }
         } catch (error) {
-            console.error("Error detecting threat:", error); 
+            console.error("Error detecting threat:", error);
             toast.error("Error detecting threat");
         }
     };
