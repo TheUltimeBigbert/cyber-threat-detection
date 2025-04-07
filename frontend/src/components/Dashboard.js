@@ -4,9 +4,17 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "../styles.css";
 
-function Dashboard() {
-  const [threats, setThreats] = useState([]);
+function Dashboard({ detectedThreats = [], totalThreats = 0, modelMetrics }) {
   const [chartData, setChartData] = useState([{ name: "Start", threats: 0 }]);
+
+  // Update chart data when threats change
+  useEffect(() => {
+    const newDataPoint = {
+      name: new Date().toLocaleTimeString(),
+      threats: totalThreats
+    };
+    setChartData(prev => [...prev, newDataPoint].slice(-10)); // Keep last 10 data points
+  }, [totalThreats]);
 
   return (
     <div className="dashboard-container">
@@ -15,8 +23,8 @@ function Dashboard() {
       {/* Threat Overview */}
       <div className="threat-overview">
         <h2>Threat Overview</h2>
-        <p>Threats Detected: {chartData.length - 1}</p>
-        <LineChart width={300} height={150} data={chartData}>
+        <p>Total Threats Detected: {totalThreats}</p>
+        <LineChart width={500} height={200} data={chartData}>
           <XAxis dataKey="name" />
           <YAxis />
           <Tooltip />
@@ -25,60 +33,82 @@ function Dashboard() {
         </LineChart>
       </div>
 
-      {/* Live Cyber Threat Map */}
-      <div className="threat-map">
-        <h2>Live Cyber Threat Map</h2>
-        <MapContainer center={[20, 0]} zoom={2} style={{ height: "500px", width: "100%" }}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {threats.map((threat, index) => (
-            <Marker key={index} position={[threat.location[0], threat.location[1]]}>
-              <Popup>
-                <b>Threat Detected!</b> <br />
-                IP: {threat.source_ip} <br />
-                Type: {threat.type} <br />
-                Severity: {threat.severity}
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
+      {/* Model Performance Metrics */}
+      <div className="performance-metrics">
+        <h2>Model Performance Metrics</h2>
+        <div className="metrics-container">
+          <div className="model-metrics">
+            <h3>Random Forest</h3>
+            {modelMetrics.randomForest ? (
+              <BarChart width={300} height={200} data={[
+                { name: "Accuracy", value: modelMetrics.randomForest.accuracy },
+                { name: "Precision", value: modelMetrics.randomForest.precision },
+                { name: "Recall", value: modelMetrics.randomForest.recall }
+              ]}>
+                <XAxis dataKey="name" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#0074D9" />
+              </BarChart>
+            ) : (
+              <p>Random Forest metrics not available.</p>
+            )}
+          </div>
+
+          <div className="model-metrics">
+            <h3>SVM</h3>
+            {modelMetrics.svm ? (
+              <BarChart width={300} height={200} data={[
+                { name: "Accuracy", value: modelMetrics.svm.accuracy },
+                { name: "Precision", value: modelMetrics.svm.precision },
+                { name: "Recall", value: modelMetrics.svm.recall }
+              ]}>
+                <XAxis dataKey="name" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Bar dataKey="value" fill="#FF4136" />
+              </BarChart>
+            ) : (
+              <p>SVM metrics not available.</p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Recent Incidents */}
       <div className="recent-incidents">
         <h2>Recent Incidents</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Severity</th>
-              <th>Source IP</th>
-              <th>Type</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {threats.map((threat, index) => (
-              <tr key={index}>
-                <td>{threat.timestamp}</td>
-                <td>{threat.severity}</td>
-                <td>{threat.source_ip}</td>
-                <td>{threat.type}</td>
-                <td>{threat.status}</td>
+        <div className="table-responsive">
+          <table className="table table-striped">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Severity</th>
+                <th>Source IP</th>
+                <th>Destination IP</th>
+                <th>Attack Type</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Model Performance Metrics */}
-      <div className="performance-metrics">
-        <h2>Model Performance Metrics</h2>
-        <BarChart width={300} height={150} data={[{ name: "Accuracy", value: 92 }, { name: "Precision", value: 85 }, { name: "Recall", value: 88 }]}>
-          <XAxis dataKey="name" />
-          <YAxis />
-          <Tooltip />
-          <Bar dataKey="value" fill="#0074D9" />
-        </BarChart>
+            </thead>
+            <tbody>
+              {detectedThreats.slice(0, 5).map((threat, index) => (
+                <tr key={index} className={
+                  threat.severity === 'High' ? 'table-danger' :
+                  threat.severity === 'Medium' ? 'table-warning' :
+                  threat.severity === 'Low' ? 'table-info' :
+                  'table-success'
+                }>
+                  <td>{threat.timestamp}</td>
+                  <td>{threat.severity}</td>
+                  <td>{threat.source_ip}</td>
+                  <td>{threat.destination_ip}</td>
+                  <td>{threat.attack_type}</td>
+                  <td>{threat.result}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

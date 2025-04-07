@@ -3,12 +3,14 @@ import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Papa from "papaparse";
+import Dashboard from './Dashboard';
 
 const ThreatDetection = () => {
     const [result, setResult] = useState(null);
     const [detectedThreats, setDetectedThreats] = useState([]); 
     const [dataset, setDataset] = useState([]); 
     const [totalThreats, setTotalThreats] = useState(0); 
+    const [modelMetrics, setModelMetrics] = useState({});
 
     useEffect(() => {
         const loadDataset = async () => {
@@ -33,6 +35,19 @@ const ThreatDetection = () => {
             }
         };
         loadDataset();
+    }, []);
+
+    useEffect(() => {
+        const fetchModelMetrics = async () => {
+            try {
+                const response = await axios.get("http://127.0.0.1:8000/model-metrics");
+                setModelMetrics(response.data);
+            } catch (error) {
+                console.error("Error fetching model metrics:", error);
+                toast.error("Error fetching model metrics");
+            }
+        };
+        fetchModelMetrics();
     }, []);
 
     const handleDetectThreat = async (inputArray) => {
@@ -90,13 +105,19 @@ const ThreatDetection = () => {
             } else {
                 console.log("Dataset is empty");
             }
-        }, 5000);
+        }, 3000);
 
         return () => clearInterval(interval);
     }, [dataset]);
 
     return (
         <div className="container">
+            <Dashboard 
+                detectedThreats={detectedThreats}
+                totalThreats={totalThreats}
+                modelMetrics={modelMetrics}
+            />
+            
             <h2>Cyber Threat Detection</h2>
             {result && (
                 <h3 className={result === "Safe" ? "text-success" : "text-danger"}>

@@ -5,7 +5,7 @@ import LoginModal from "./components/LoginModal";
 import Dashboard from "./components/Dashboard";
 import ForgotPassword from "./pages/ForgotPassword";
 import SignUp from "./components/SignUp";
-import ThreatDetection from "./components/ThreatDetection"; // Import ThreatDetection component
+import ThreatDetection from "./components/ThreatDetection";
 import "./styles.css";
 
 function App() {
