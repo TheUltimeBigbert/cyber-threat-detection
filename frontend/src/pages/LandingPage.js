@@ -13,14 +13,14 @@ function LandingPage() {
           <h1>Enhancing Cybersecurity with Machine Learning</h1>
           <p>Detect, Analyze, and Prevent Cyber Threats in Real-Time.</p>
 
-          <button className="monitoring-btn" onClick={() => navigate("/dashboard")}>
+          <button className="monitoring-btn" onClick={() => navigate("/threat-detection")}>
             START MONITORING
           </button>
 
           {/* LOGIN Button (Now Below "START MONITORING") */}
-          <button className="login-btn" onClick={() => setModalIsOpen(true)}>
+          {/* <button className="login-btn" onClick={() => setModalIsOpen(true)}>
             LOGIN
-          </button>
+          </button> */}
         </div>
 
         {/* Login Modal */}
