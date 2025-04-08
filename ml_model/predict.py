@@ -20,21 +20,22 @@ df_details = pd.read_csv("dataset/cleaned_data_with_details.csv")
 # After loading df_details, print the columns to debug
 print("Available columns:", df_details.columns.tolist())
 
-# Update column mapping to match the actual column names in the CSV
+# Update column mapping
 column_mapping = {
-    "source_ip": "Source IP",
-    "destination_ip": "Destination IP",
-    "original_attack_label": "Attack Type"
+    "attacker_ip": "Attacker IP",
+    "victim_ip": "Victim IP",
+    "original_attack_label": "Attack Type",
+    "Severity_Explanation": "Severity Explanation"
 }
 
 # Rename columns
 df_details = df_details.rename(columns=column_mapping)
 
 # Ensure necessary columns exist
-required_columns = ["Source IP", "Destination IP", "Attack Type", "Severity"]
+required_columns = ["Attacker IP", "Victim IP", "Attack Type", "Severity", "Severity Explanation"]
 for col in required_columns:
     if col not in df_details.columns:
-        raise ValueError(f"Missing required column: {col}")
+        print(f"Warning: Missing required column: {col}")
 
 # Define numeric columns (excluding metadata columns and Severity)
 numeric_columns = [col for col in df_details.columns if col not in required_columns and col != "Severity"]
@@ -62,6 +63,30 @@ ATTACK_TYPE_MAPPING = {
     "Web Attack Brute Force": "Web Attack Brute Force",
     "Web Attack SQL Injection": "Web Attack SQL Injection",
     "Web Attack XSS": "Web Attack XSS"
+}
+
+# Update the ATTACK_SEVERITY_MAPPING
+ATTACK_SEVERITY_MAPPING = {
+        # High severity attacks
+        "DDoS": "High",
+        "DoS GoldenEye": "High",
+        "DoS Hulk": "High",
+        "DoS Slowhttptest": "High",
+        "DoS slowloris": "High",
+        "Heartbleed": "High",
+        "Web Attack SQL Injection": "High",
+        
+        # Medium severity attacks
+        "Web Attack Brute Force": "Medium",
+        "Web Attack XSS": "Medium",
+        "Infiltration": "Medium",
+        "SSH-Patator": "Medium",
+        "FTP-Patator": "Medium",
+        
+        # Low severity attacks
+        "PortScan": "Low",
+        "Bot": "Low",
+        "BENIGN": "Low"
 }
 
 app = FastAPI()
@@ -95,37 +120,43 @@ async def predict(features: Features):
         
         if not matching_rows.empty:
             # Convert IP pairs to a list of tuples for proper sampling
-            ip_pairs = list(zip(matching_rows['Source IP'], matching_rows['Destination IP']))
+            ip_pairs = list(zip(matching_rows['Attacker IP'], matching_rows['Victim IP']))
             if ip_pairs:
                 # Randomly select one IP pair
                 random_pair = ip_pairs[np.random.randint(0, len(ip_pairs))]
                 # Get the corresponding row
                 random_row = matching_rows[
-                    (matching_rows['Source IP'] == random_pair[0]) & 
-                    (matching_rows['Destination IP'] == random_pair[1])
+                    (matching_rows['Attacker IP'] == random_pair[0]) & 
+                    (matching_rows['Victim IP'] == random_pair[1])
                 ].iloc[0]
                 
-                source_ip = random_pair[0]
-                destination_ip = random_pair[1]
+                attacker_ip = random_pair[0]
+                victim_ip = random_pair[1]
                 attack_type = random_row["Attack Type"]
+                
+                # Get severity and explanation from the dataset
                 severity = random_row.get("Severity", "Unknown")
+                severity_explanation = random_row.get("Severity Explanation", "No explanation available")
+                
                 logging.info(f"Found severity: {severity}")
             else:
                 raise ValueError("No valid IP pairs found")
         else:
-            source_ip = "Unknown"
-            destination_ip = "Unknown"
+            attacker_ip = "Unknown"
+            victim_ip = "Unknown"
             attack_type = attack_label
-            severity = "Unknown"
+            severity = ATTACK_SEVERITY_MAPPING.get(attack_label, "Low")
+            severity_explanation = f'Default severity for {attack_label}'
 
-        logging.info(f"Returning: source_ip={source_ip}, destination_ip={destination_ip}, attack_type={attack_type}, severity={severity}")
+        logging.info(f"Returning: attacker_ip={attacker_ip}, victim_ip={victim_ip}, attack_type={attack_type}, severity={severity}")
 
         return {
             "prediction": 1 if attack_type != "BENIGN" else 0,
-            "source_ip": source_ip,
-            "destination_ip": destination_ip,
+            "attacker_ip": attacker_ip,
+            "victim_ip": victim_ip,
             "attack_type": attack_type,
-            "severity": severity
+            "severity": severity,
+            "severity_explanation": severity_explanation
         }
     except Exception as e:
         logging.error(f"Prediction error: {e}")
@@ -163,6 +194,6 @@ print("Severity values in dataset:", df_details["Severity"].unique())
 
 # After loading df_details
 print("IP address statistics:")
-print(f"Number of unique source IPs: {df_details['Source IP'].nunique()}")
-print(f"Number of unique destination IPs: {df_details['Destination IP'].nunique()}")
-print(f"Number of unique IP pairs: {len(df_details.groupby(['Source IP', 'Destination IP']))}")
+print(f"Number of unique source IPs: {df_details['Attacker IP'].nunique()}")
+print(f"Number of unique destination IPs: {df_details['Victim IP'].nunique()}")
+print(f"Number of unique IP pairs: {len(df_details.groupby(['Attacker IP', 'Victim IP']))}")

@@ -6,6 +6,41 @@ import "../styles.css";
 
 function Dashboard({ detectedThreats = [], totalThreats = 0, modelMetrics }) {
   const [chartData, setChartData] = useState([{ name: "Start", threats: 0 }]);
+  const [tooltipVisible, setTooltipVisible] = useState(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+
+  const formatSeverityExplanation = (explanation) => {
+    if (typeof explanation === 'string') {
+      try {
+        const data = JSON.parse(explanation);
+        return Object.entries(data).map(([key, value]) => {
+          const formattedKey = key
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+          
+          let formattedValue = value;
+          if (typeof value === 'number') {
+            formattedValue = value.toLocaleString();
+          }
+          
+          return `${formattedKey}: ${formattedValue}`;
+        }).join('\n');
+      } catch (e) {
+        return explanation;
+      }
+    }
+    return explanation;
+  };
+
+  const handleMouseEnter = (index, event) => {
+    const rect = event.target.getBoundingClientRect();
+    setTooltipPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top
+    });
+    setTooltipVisible(index);
+  };
 
   // Update chart data when threats change
   useEffect(() => {
@@ -84,8 +119,8 @@ function Dashboard({ detectedThreats = [], totalThreats = 0, modelMetrics }) {
               <tr>
                 <th>Timestamp</th>
                 <th>Severity</th>
-                <th>Source IP</th>
-                <th>Destination IP</th>
+                <th>Attacker IP</th>
+                <th>Victim IP</th>
                 <th>Attack Type</th>
                 <th>Status</th>
               </tr>
@@ -99,9 +134,35 @@ function Dashboard({ detectedThreats = [], totalThreats = 0, modelMetrics }) {
                   'table-success'
                 }>
                   <td>{threat.timestamp}</td>
-                  <td>{threat.severity}</td>
-                  <td>{threat.source_ip}</td>
-                  <td>{threat.destination_ip}</td>
+                  <td>
+                    <div className="severity-container">
+                      <span 
+                        className={`severity-badge severity-${threat.severity.toLowerCase()}`}
+                        onMouseEnter={(e) => handleMouseEnter(index, e)}
+                        onMouseLeave={() => setTooltipVisible(null)}
+                      >
+                        {threat.severity}
+                      </span>
+                      {tooltipVisible === index && (
+                        <div 
+                          className="custom-tooltip"
+                          style={{
+                            left: `${tooltipPosition.x}px`,
+                            top: `${tooltipPosition.y}px`
+                          }}
+                        >
+                          <strong>Severity Explanation:</strong><br />
+                          <div className="severity-details">
+                            {formatSeverityExplanation(threat.severity_explanation).split('\n').map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td>{threat.attacker_ip}</td>
+                  <td>{threat.victim_ip}</td>
                   <td>{threat.attack_type}</td>
                   <td>{threat.result}</td>
                 </tr>

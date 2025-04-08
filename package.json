@@ -1,6 +1,8 @@
 {
   "dependencies": {
+    "bootstrap": "^5.3.5",
     "csvtojson": "^2.0.10",
-    "papaparse": "^5.5.2"
+    "papaparse": "^5.5.2",
+    "react-bootstrap": "^2.10.9"
   }
 }

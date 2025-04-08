@@ -3,39 +3,178 @@ import pandas as pd
 import numpy as np
 from sklearn.utils import resample
 
-def determine_severity(row):
-    """
-    Determine attack severity based on flow characteristics.
-    """
-    flow_duration = float(row.get('flow_duration', 0))
-    fwd_packets = float(row.get('total_fwd_packets', 0))
-    bwd_packets = float(row.get('total_backward_packets', 0))
+# Add this new mapping at the top of the file
+ATTACK_SEVERITY_MAPPING = {
+    # High severity attacks
+    "DDoS": "High",
+    "DoS GoldenEye": "High",
+    "DoS Hulk": "High",
+    "DoS Slowhttptest": "High",
+    "DoS slowloris": "High",
+    "Heartbleed": "High",
+    "Web Attack SQL Injection": "High",
     
+    # Medium severity attacks
+    "Web Attack Brute Force": "Medium",
+    "Web Attack XSS": "Medium",
+    "Infiltration": "Medium",
+    "SSH-Patator": "Medium",
+    "FTP-Patator": "Medium",
+    
+    # Low severity attacks
+    "PortScan": "Low",
+    "Bot": "Low",
+    "BENIGN": "Low"
+}
+
+# Add these constants at the top of the file
+FLOW_THRESHOLDS = {
+    'duration': {
+        'high': 10000000,  # 10 seconds
+        'medium': 1000000  # 1 second
+    },
+    'packets_rate': {
+        'high': 500,    # packets per second (high for DDoS)
+        'medium': 100   # medium for Brute Force, Flooding
+    },
+    'bytes_rate': {
+        'high': 500000,  # bytes per second (high for DDoS)
+        'medium': 50000  # medium for Malware or Flooding
+    },
+    'flags': {
+        'high': 0.5,     # PSH/URG ratio indicating aggressive traffic
+        'medium': 0.2    # Medium threshold for more typical attacks
+    }
+}
+def calculate_flow_metrics(row):
+    """Calculate derived flow metrics"""
+    # Get duration with minimum value of 1 microsecond to avoid division by zero
+    duration = max(float(row.get('flow_duration', 1)), 1)  # Ensure minimum of 1 microsecond
+    
+    # Calculate packets and bytes per second
+    total_packets = float(row.get('total_fwd_packets', 0)) + float(row.get('total_backward_packets', 0))
+    total_bytes = float(row.get('total_length_of_fwd_packets', 0)) + float(row.get('total_length_of_bwd_packets', 0))
+    
+    # Calculate rates (converting microseconds to seconds)
+    seconds = duration / 1000000
+    packets_per_sec = total_packets / seconds if seconds > 0 else 0
+    bytes_per_sec = total_bytes / seconds if seconds > 0 else 0
+    
+    # Calculate flag ratios with safety check for zero packets
+    total_flags = float(row.get('fwd_psh_flags', 0)) + float(row.get('bwd_psh_flags', 0)) + \
+                  float(row.get('fwd_urg_flags', 0)) + float(row.get('bwd_urg_flags', 0))
+    flag_ratio = total_flags / total_packets if total_packets > 0 else 0
+    
+    return {
+        'packets_rate': packets_per_sec,
+        'bytes_rate': bytes_per_sec,
+        'flag_ratio': flag_ratio,
+        'duration': duration
+    }
+
 def determine_severity(row):
     """
-    Determine attack severity based on flow characteristics.
+    Determine attack severity based on attack type and flow characteristics with detailed explanation.
     """
-    flow_duration = float(row.get('flow_duration', 0))  
-    fwd_packets = float(row.get('total_fwd_packets', 0))
-    bwd_packets = float(row.get('total_backward_packets', 0))
+    # First check if traffic is BENIGN
+    attack_type = row.get('label', row.get('attack', row.get('attack_type', 'UNKNOWN')))
+    if attack_type == "BENIGN":
+        return {
+            'severity': 'Low',
+            'explanation': [{
+                'feature': 'Traffic Type',
+                'value': 'BENIGN',
+                'severity': 'Low',
+                'reason': 'Normal network traffic'
+            }]
+        }
 
-    # 🔥 High Severity: Short & intense OR long with many packets
-    if ((flow_duration < 200000 and (fwd_packets > 50 or bwd_packets > 50)) or  
-        (flow_duration > 2000000 and (fwd_packets > 500 or bwd_packets > 500))):  
-        return 'High'
+    # For actual attacks, calculate flow metrics
+    metrics = calculate_flow_metrics(row)
+    severity_reasons = []
+    
+    # Get base severity from attack type mapping
+    base_severity = ATTACK_SEVERITY_MAPPING.get(attack_type, 'Medium')
+    severity_reasons.append({
+        'feature': 'Attack Type',
+        'value': attack_type,
+        'severity': base_severity,
+        'reason': f'Base severity for {attack_type} attack'
+    })
 
-    # ⚡ Medium Severity: Medium duration OR low packet long duration
-    elif ((200000 <= flow_duration <= 2000000 and (10 <= fwd_packets <= 50 or 10 <= bwd_packets <= 50)) or  
-          (flow_duration > 2000000 and (fwd_packets > 50 or bwd_packets > 50))):  
-        return 'Medium'
-
-    # 🟢 Low Severity: Long but stealthy, or very low activity
+    # Then check flow characteristics to potentially escalate severity
+    if metrics['duration'] < FLOW_THRESHOLDS['duration']['medium']:
+        severity_reasons.append({
+            'feature': 'Flow Duration',
+            'value': f"{metrics['duration']/1000000:.2f} seconds",
+            'severity': 'High',
+            'reason': 'Very short flow duration indicates potential burst attack'
+        })
+    elif metrics['duration'] < FLOW_THRESHOLDS['duration']['high']:
+        severity_reasons.append({
+            'feature': 'Flow Duration',
+            'value': f"{metrics['duration']/1000000:.2f} seconds",
+            'severity': 'Medium',
+            'reason': 'Moderately short flow duration'
+        })
+    
+    if metrics['packets_rate'] > FLOW_THRESHOLDS['packets_rate']['high']:
+        severity_reasons.append({
+            'feature': 'Packet Rate',
+            'value': f"{metrics['packets_rate']:.2f} packets/s",
+            'severity': 'High',
+            'reason': 'Very high packet rate indicates potential DoS attack'
+        })
+    elif metrics['packets_rate'] > FLOW_THRESHOLDS['packets_rate']['medium']:
+        severity_reasons.append({
+            'feature': 'Packet Rate',
+            'value': f"{metrics['packets_rate']:.2f} packets/s",
+            'severity': 'Medium',
+            'reason': 'Elevated packet rate'
+        })
+    
+    if metrics['bytes_rate'] > FLOW_THRESHOLDS['bytes_rate']['high']:
+        severity_reasons.append({
+            'feature': 'Bytes Rate',
+            'value': f"{metrics['bytes_rate']:.2f} bytes/s",
+            'severity': 'High',
+            'reason': 'Very high data transfer rate'
+        })
+    elif metrics['bytes_rate'] > FLOW_THRESHOLDS['bytes_rate']['medium']:
+        severity_reasons.append({
+            'feature': 'Bytes Rate',
+            'value': f"{metrics['bytes_rate']:.2f} bytes/s",
+            'severity': 'Medium',
+            'reason': 'Elevated data transfer rate'
+        })
+    
+    if metrics['flag_ratio'] > FLOW_THRESHOLDS['flags']['high']:
+        severity_reasons.append({
+            'feature': 'Flag Usage',
+            'value': f"{metrics['flag_ratio']:.2%}",
+            'severity': 'High',
+            'reason': 'Unusual amount of PSH/URG flags'
+        })
+    elif metrics['flag_ratio'] > FLOW_THRESHOLDS['flags']['medium']:
+        severity_reasons.append({
+            'feature': 'Flag Usage',
+            'value': f"{metrics['flag_ratio']:.2%}",
+            'severity': 'Medium',
+            'reason': 'Moderate use of PSH/URG flags'
+        })
+    
+    # Determine overall severity based on the highest severity reason
+    if any(reason['severity'] == 'High' for reason in severity_reasons):
+        overall_severity = 'High'
+    elif any(reason['severity'] == 'Medium' for reason in severity_reasons):
+        overall_severity = 'Medium'
     else:
-        return 'Low'
-
-
-
-
+        overall_severity = 'Low'
+    
+    return {
+        'severity': overall_severity,
+        'explanation': severity_reasons
+    }
 
 # Settings
 dataset_dir = "dataset"
@@ -55,7 +194,7 @@ csv_files = [
     "Wednesday-workingHours.pcap_ISCX.csv"
 ]
 
-# Possible attack label column names
+# Possible attack label column names        
 possible_attack_columns = ["attack", "label", "class", "Attack Type", "Label"]
 
 # Initialize an empty DataFrame to hold the merged data
@@ -135,10 +274,14 @@ for file_name in csv_files:
         print(f"⚠️ Sampled DataFrame is empty for file: {file_name}")
         continue
 
-    # Add severity level before any other processing
+    # Update where we add severity to the DataFrame
     print("Adding severity levels...")
-    df_sampled['Severity'] = df_sampled.apply(determine_severity, axis=1)
-    print("Severity distribution:\n", df_sampled['Severity'].value_counts())
+    severity_results = df_sampled.apply(determine_severity, axis=1)
+    df_sampled['Severity'] = [result['severity'] for result in severity_results]
+    df_sampled['Severity_Explanation'] = [result['explanation'] for result in severity_results]
+
+    # Before data cleaning, convert Severity_Explanation to string representation
+    df_sampled['Severity_Explanation'] = df_sampled['Severity_Explanation'].apply(str)
 
     # Data cleaning (but keeping original values)
     df_sampled.fillna(0, inplace=True)  
@@ -207,3 +350,13 @@ if merged_df.shape[0] > 1:
     print("Final Severity distribution:\n", merged_df['Severity'].value_counts())
 else:
     print("❌ Merged dataset is too small. No file saved.")
+
+# Update the IP column names during processing
+def process_csv_file(df):
+    # Rename IP columns
+    ip_mapping = {
+        'source_ip': 'attacker_ip',
+        'destination_ip': 'victim_ip'
+    }
+    df = df.rename(columns=ip_mapping)
+    return df

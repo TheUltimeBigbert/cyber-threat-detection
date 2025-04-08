@@ -4,6 +4,8 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Papa from "papaparse";
 import Dashboard from './Dashboard';
+import { OverlayTrigger, Tooltip } from 'react-bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
 
 const ThreatDetection = () => {
     const [result, setResult] = useState(null);
@@ -11,6 +13,32 @@ const ThreatDetection = () => {
     const [dataset, setDataset] = useState([]); 
     const [totalThreats, setTotalThreats] = useState(0); 
     const [modelMetrics, setModelMetrics] = useState({});
+    const [tooltipVisible, setTooltipVisible] = useState(null);
+    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+
+    const formatSeverityExplanation = (explanation) => {
+        if (typeof explanation === 'string') {
+            try {
+                const data = JSON.parse(explanation);
+                return Object.entries(data).map(([key, value]) => {
+                    const formattedKey = key
+                        .split('_')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                        .join(' ');
+                    
+                    let formattedValue = value;
+                    if (typeof value === 'number') {
+                        formattedValue = value.toLocaleString();
+                    }
+                    
+                    return `${formattedKey}: ${formattedValue}`;
+                }).join('\n');
+            } catch (e) {
+                return explanation;
+            }
+        }
+        return explanation;
+    };
 
     useEffect(() => {
         const loadDataset = async () => {
@@ -58,7 +86,7 @@ const ThreatDetection = () => {
                 features: inputArray
             });
 
-            const { prediction, source_ip, destination_ip, attack_type, severity } = response.data;
+            const { prediction, attacker_ip, victim_ip, attack_type, severity, severity_explanation } = response.data;
             const resultText = attack_type === "BENIGN" ? "Safe" : attack_type;
             setResult(resultText);
 
@@ -71,10 +99,11 @@ const ThreatDetection = () => {
             setDetectedThreats(prevThreats => [
                 {
                     timestamp: new Date().toLocaleString(),
-                    source_ip,
-                    destination_ip,
+                    attacker_ip,
+                    victim_ip,
                     attack_type,
                     severity,
+                    severity_explanation,
                     result: resultText
                 },
                 ...prevThreats
@@ -110,6 +139,15 @@ const ThreatDetection = () => {
         return () => clearInterval(interval);
     }, [dataset]);
 
+    const handleMouseEnter = (index, event) => {
+        const rect = event.target.getBoundingClientRect();
+        setTooltipPosition({
+            x: rect.left + rect.width / 2,
+            y: rect.top
+        });
+        setTooltipVisible(index);
+    };
+
     return (
         <div className="container">
             <Dashboard 
@@ -133,8 +171,8 @@ const ThreatDetection = () => {
                     <thead>
                         <tr>
                             <th>Timestamp</th>
-                            <th>Source IP</th>
-                            <th>Destination IP</th>
+                            <th>Attacker IP</th>
+                            <th>Victim IP</th>
                             <th>Attack Type</th>
                             <th>Severity</th>
                             <th>Status</th>
@@ -149,10 +187,36 @@ const ThreatDetection = () => {
                                 'table-success'
                             }>
                                 <td>{threat.timestamp}</td>
-                                <td>{threat.source_ip}</td>
-                                <td>{threat.destination_ip}</td>
+                                <td>{threat.attacker_ip}</td>
+                                <td>{threat.victim_ip}</td>
                                 <td>{threat.attack_type}</td>
-                                <td>{threat.severity}</td>
+                                <td>
+                                    <div className="severity-container">
+                                        <span 
+                                            className={`severity-badge severity-${threat.severity.toLowerCase()}`}
+                                            onMouseEnter={(e) => handleMouseEnter(index, e)}
+                                            onMouseLeave={() => setTooltipVisible(null)}
+                                        >
+                                            {threat.severity}
+                                        </span>
+                                        {tooltipVisible === index && (
+                                            <div 
+                                                className="custom-tooltip"
+                                                style={{
+                                                    left: `${tooltipPosition.x}px`,
+                                                    top: `${tooltipPosition.y}px`
+                                                }}
+                                            >
+                                                <strong>Severity Explanation:</strong><br />
+                                                <div className="severity-details">
+                                                    {formatSeverityExplanation(threat.severity_explanation).split('\n').map((line, i) => (
+                                                        <div key={i}>{line}</div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </td>
                                 <td>{threat.result}</td>
                             </tr>
                         ))}
