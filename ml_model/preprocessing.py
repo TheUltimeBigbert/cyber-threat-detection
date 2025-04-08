@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.utils import resample
 
+<<<<<<< HEAD
 # Add this new mapping at the top of the file
 ATTACK_SEVERITY_MAPPING = {
     # High severity attacks
@@ -175,6 +176,51 @@ def determine_severity(row):
         'severity': overall_severity,
         'explanation': severity_reasons
     }
+=======
+def determine_severity(row):
+    """
+    Determine attack severity based on flow characteristics.
+    """
+    # Get flow characteristics
+    flow_duration = float(row.get('flow_duration', 0))
+    fwd_packets = float(row.get('total_fwd_packets', 0))
+    bwd_packets = float(row.get('total_backward_packets', 0))
+    bytes = float(row.get('total_length_of_fwd_packets', 0)) + float(row.get('total_length_of_bwd_packets', 0))
+    psh_flags = float(row.get('fwd_psh_flags', 0)) + float(row.get('bwd_psh_flags', 0))
+    urg_flags = float(row.get('fwd_urg_flags', 0)) + float(row.get('bwd_urg_flags', 0))
+    packets_per_second = float(row.get('flow_packets/s', 0))
+    bytes_per_second = float(row.get('flow_bytes/s', 0))
+
+    # Get attack type
+    attack_type = row.get('label', '').strip().lower()
+
+    # BENIGN traffic is always Low severity
+    if attack_type == 'benign':
+        return 'Low'
+
+    # High Severity: Very intense traffic patterns
+    if ((flow_duration < 100000 and (fwd_packets > 100 or bwd_packets > 100)) or  # Short & very intense
+        (flow_duration > 1000000 and (fwd_packets > 1000 or bwd_packets > 1000)) or  # Long & massive
+        (bytes_per_second > 1000000) or  # High bandwidth
+        (packets_per_second > 1000) or  # High packet rate
+        (psh_flags > 50 or urg_flags > 50)):  # Many urgent packets
+        return 'High'
+
+    # Medium Severity: Moderate traffic patterns
+    if ((100000 <= flow_duration <= 1000000 and (50 <= fwd_packets <= 100 or 50 <= bwd_packets <= 100)) or
+        (flow_duration > 1000000 and (100 <= fwd_packets <= 1000 or 100 <= bwd_packets <= 1000)) or
+        (100000 <= bytes_per_second <= 1000000) or
+        (100 <= packets_per_second <= 1000) or
+        (10 <= psh_flags <= 50 or 10 <= urg_flags <= 50)):
+        return 'Medium'
+
+    # Low Severity: Everything else
+    return 'Low'
+
+
+
+
+>>>>>>> 9fa7f7a9dc7ea4fb6703c52866d225aad514c139
 
 # Settings
 dataset_dir = "dataset"
