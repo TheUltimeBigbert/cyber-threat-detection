@@ -1,143 +1,55 @@
-import { useState, useEffect } from "react";
-import axios from "axios";
-import { ToastContainer, toast } from "react-toastify";
+import React, { useState } from "react";
+import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import Papa from "papaparse";
-import Dashboard from './Dashboard';
-import { OverlayTrigger, Tooltip } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
+import { useThreatContext } from "../context/ThreatContext";
 
 const ThreatDetection = () => {
-    const [result, setResult] = useState(null);
-    const [detectedThreats, setDetectedThreats] = useState([]); 
-    const [dataset, setDataset] = useState([]); 
-    const [totalThreats, setTotalThreats] = useState(0); 
-    const [modelMetrics, setModelMetrics] = useState({});
+    const { detectedThreats, totalThreats } = useThreatContext();
     const [tooltipVisible, setTooltipVisible] = useState(null);
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
+    // Calculate traffic stats
+    const actualThreats = detectedThreats.filter(t => t.isThreat);
+    const benignTraffic = detectedThreats.filter(t => t.attack_type === "BENIGN");
+    const unknownTraffic = detectedThreats.filter(t => !t.isThreat && t.attack_type !== "BENIGN");
+
     const formatSeverityExplanation = (explanation) => {
         if (typeof explanation === 'string') {
-            try {
+            try {       
                 const data = JSON.parse(explanation);
-                return Object.entries(data).map(([key, value]) => {
-                    const formattedKey = key
+                
+                if (data.error) {
+                    return data.error;
+                }
+
+                let formattedText = [`${data.explanation || ''}`];
+                const featureImportance = data.feature_importance || {};
+                
+                const sortedFeatures = Object.entries(featureImportance)
+                    .sort(([, a], [, b]) => b.importance - a.importance);
+
+                sortedFeatures.forEach(([feature, details]) => {
+                    const featureName = feature
                         .split('_')
                         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
                         .join(' ');
                     
-                    let formattedValue = value;
-                    if (typeof value === 'number') {
-                        formattedValue = value.toLocaleString();
-                    }
-                    
-                    return `${formattedKey}: ${formattedValue}`;
-                }).join('\n');
+                    formattedText.push(
+                        `\n${featureName}:`,
+                        `  ${details.context}`,
+                        `  Impact: ${details.impact} severity (${details.importance.toFixed(1)}% importance)`
+                    );
+                });
+
+                return formattedText.join('\n');
             } catch (e) {
+                console.error("Error parsing severity explanation:", e);
                 return explanation;
             }
         }
         return explanation;
     };
-
-    useEffect(() => {
-        const loadDataset = async () => {
-            try {
-                const response = await fetch("http://localhost:8000/static/cleaned_data_with_details.csv");
-                const csvText = await response.text();
-                Papa.parse(csvText, {
-                    header: true,
-                    dynamicTyping: true,
-                    complete: (results) => {
-                        // Filter out rows with missing or invalid data
-                        const validData = results.data.filter(row => 
-                            row && Object.keys(row).length > 0 && !Object.values(row).every(val => val === null)
-                        );
-                        setDataset(validData);
-                        console.log("Dataset loaded:", validData);
-                    },
-                });
-            } catch (error) {
-                console.error("Error loading dataset:", error);
-                toast.error("Error loading dataset");
-            }
-        };
-        loadDataset();
-    }, []);
-
-    useEffect(() => {
-        const fetchModelMetrics = async () => {
-            try {
-                const response = await axios.get("http://127.0.0.1:8000/model-metrics");
-                setModelMetrics(response.data);
-            } catch (error) {
-                console.error("Error fetching model metrics:", error);
-                toast.error("Error fetching model metrics");
-            }
-        };
-        fetchModelMetrics();
-    }, []);
-
-    const handleDetectThreat = async (inputArray) => {
-        try {
-            console.log("Input array:", inputArray);
-
-            const response = await axios.post("http://127.0.0.1:8000/predict", {
-                features: inputArray
-            });
-
-            const { prediction, attacker_ip, victim_ip, attack_type, severity, severity_explanation } = response.data;
-            const resultText = attack_type === "BENIGN" ? "Safe" : attack_type;
-            setResult(resultText);
-
-            // Only show toast for actual threats
-            if (resultText !== "Safe") {
-                toast.warning(`Threat Detected: ${resultText}`);
-            }
-
-            // Add new threat to the list with all available information
-            setDetectedThreats(prevThreats => [
-                {
-                    timestamp: new Date().toLocaleString(),
-                    attacker_ip,
-                    victim_ip,
-                    attack_type,
-                    severity,
-                    severity_explanation,
-                    result: resultText
-                },
-                ...prevThreats
-            ].slice(0, 100)); // Keep only the last 100 threats
-
-            if (attack_type !== "BENIGN") {
-                setTotalThreats(prevCount => prevCount + 1);
-            }
-        } catch (error) {
-            console.error("Error detecting threat:", error);
-            toast.error("Error detecting threat");
-        }
-    };
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (dataset.length > 0) {
-                const randomIndex = Math.floor(Math.random() * dataset.length);
-                const randomRow = dataset[randomIndex];
-                
-                // Send both attack label and severity
-                const attackLabel = randomRow.original_attack_label;
-                console.log("Selected random row:", randomRow);
-                console.log("Attack label:", attackLabel);
-                console.log("Severity:", randomRow.attack_severity);  // Changed from Severity to attack_severity
-                
-                handleDetectThreat([attackLabel]);
-            } else {
-                console.log("Dataset is empty");
-            }
-        }, 3000);
-
-        return () => clearInterval(interval);
-    }, [dataset]);
 
     const handleMouseEnter = (index, event) => {
         const rect = event.target.getBoundingClientRect();
@@ -148,83 +60,186 @@ const ThreatDetection = () => {
         setTooltipVisible(index);
     };
 
+    const handleCloseTooltip = () => {
+        setTooltipVisible(null);
+    };
+
+    const CustomTooltip = ({ threat }) => {
+        const explanation = formatSeverityExplanation(threat.severity_explanation);
+        const lines = explanation.split('\n');
+        const [header, ...details] = lines;
+
+        return (
+            <div className="severity-tooltip">
+                <div className="severity-tooltip-header">
+                    <strong>{header}</strong>
+                    <span className="close-button" onClick={handleCloseTooltip}>×</span>
+                </div>
+                <div className="severity-tooltip-content">
+                    {details.map((line, i) => (
+                        <div 
+                            key={i} 
+                            className={
+                                line.startsWith('  ') ? 'severity-tooltip-detail' : 
+                                'severity-tooltip-feature'
+                            }
+                        >
+                            {line}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="container">
-            <Dashboard 
-                detectedThreats={detectedThreats}
-                totalThreats={totalThreats}
-                modelMetrics={modelMetrics}
-            />
-            
-            <h2>Cyber Threat Detection</h2>
-            {result && (
-                <h3 className={result === "Safe" ? "text-success" : "text-danger"}>
-                    Detection Result: {result}
-                </h3>
-            )}
+            <h2>Threat Detection History</h2>
             <ToastContainer />
 
-            <h3>Total Detected Threats: {totalThreats}</h3>
+            <div className="alert alert-info mb-3">
+                <h4>Traffic Analysis</h4>
+                <div className="row">
+                    <div className="col-md-3">
+                        <strong>Confirmed Threats:</strong> {totalThreats}
+                        <small className="d-block text-muted">Known attack patterns</small>
+                    </div>
+                    <div className="col-md-3">
+                        <strong>Benign Traffic:</strong> {benignTraffic.length}
+                        <small className="d-block text-muted">Safe network activity</small>
+                    </div>
+                    <div className="col-md-3">
+                        <strong>Unknown Traffic:</strong> {unknownTraffic.length}
+                        <small className="d-block text-muted">Unclassified patterns</small>
+                    </div>
+                    <div className="col-md-3">
+                        <strong>Total Traffic:</strong> {detectedThreats.length}
+                        <small className="d-block text-muted">All network activity</small>
+                    </div>
+                </div>
+                <p className="mt-2 mb-0">This view shows the complete history of all network traffic, including both threats and normal activity</p>
+            </div>
 
             <div className="table-responsive">
-                <table className="table table-striped">
-                    <thead>
+                <table className="table table-striped border">
+                    <thead className="thead-dark bg-dark text-white">
                         <tr>
-                            <th>Timestamp</th>
-                            <th>Attacker IP</th>
-                            <th>Victim IP</th>
-                            <th>Attack Type</th>
-                            <th>Severity</th>
-                            <th>Status</th>
+                            <th className="px-3 py-2">Timestamp</th>  
+                            <th className="px-3 py-2">Attacker IP</th>
+                            <th className="px-3 py-2">Victim IP</th>
+                            <th className="px-3 py-2">Type</th>
+                            <th className="px-3 py-2">Severity</th>
+                            <th className="px-3 py-2">Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {detectedThreats.map((threat, index) => (
-                            <tr key={index} className={
-                                threat.severity === 'High' ? 'table-danger' :
-                                threat.severity === 'Medium' ? 'table-warning' :
-                                threat.severity === 'Low' ? 'table-info' :
-                                'table-success'
-                            }>
-                                <td>{threat.timestamp}</td>
-                                <td>{threat.attacker_ip}</td>
-                                <td>{threat.victim_ip}</td>
-                                <td>{threat.attack_type}</td>
-                                <td>
-                                    <div className="severity-container">
-                                        <span 
-                                            className={`severity-badge severity-${threat.severity.toLowerCase()}`}
-                                            onMouseEnter={(e) => handleMouseEnter(index, e)}
-                                            onMouseLeave={() => setTooltipVisible(null)}
-                                        >
-                                            {threat.severity}
+                        {detectedThreats.length > 0 ? (
+                            detectedThreats.map((threat, index) => (
+                                <tr key={`${threat.timestamp}-${threat.attack_type}-${index}`} className={
+                                    threat.isThreat ? (
+                                        threat.severity === 'High' ? 'table-danger' :
+                                        threat.severity === 'Medium' ? 'table-warning' :
+                                        'table-info'
+                                    ) : (
+                                        threat.attack_type === 'BENIGN' ? 'table-success' : ''
+                                    )
+                                }>
+                                    <td className="px-3 py-2">{threat.timestamp}</td>
+                                    <td className="px-3 py-2">{threat.attacker_ip}</td>
+                                    <td className="px-3 py-2">{threat.victim_ip}</td>
+                                    <td className="px-3 py-2">
+                                        <span className={`badge ${threat.isThreat ? 'bg-danger' : (threat.attack_type === 'BENIGN' ? 'bg-success' : 'bg-secondary')}`}>
+                                            {threat.attack_type}
                                         </span>
-                                        {tooltipVisible === index && (
-                                            <div 
-                                                className="custom-tooltip"
-                                                style={{
-                                                    left: `${tooltipPosition.x}px`,
-                                                    top: `${tooltipPosition.y}px`
-                                                }}
-                                            >
-                                                <strong>Severity Explanation:</strong><br />
-                                                <div className="severity-details">
-                                                    {formatSeverityExplanation(threat.severity_explanation).split('\n').map((line, i) => (
-                                                        <div key={i}>{line}</div>
-                                                    ))}
-                                                </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                        {threat.isThreat && (
+                                            <div className="severity-container">
+                                                <span 
+                                                    className={`severity-badge severity-${threat.severity.toLowerCase()}`}
+                                                    onClick={(e) => handleMouseEnter(index, e)}
+                                                >
+                                                    {threat.severity}
+                                                </span>
+                                                {tooltipVisible === index && (
+                                                    <div 
+                                                        className="custom-tooltip"
+                                                        style={{
+                                                            left: `${tooltipPosition.x}px`,
+                                                            top: `${tooltipPosition.y}px`
+                                                        }}
+                                                    >
+                                                        <CustomTooltip threat={threat} />
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                    </div>
-                                </td>
-                                <td>{threat.result}</td>
+                                    </td>
+                                    <td className="px-3 py-2">{threat.result}</td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan="6" className="text-center py-3">No traffic detected yet</td>
                             </tr>
-                        ))}
+                        )}
                     </tbody>
                 </table>
             </div>
+
+            <style jsx>{`
+                .table {
+                    background-color: white;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .thead-dark th {
+                    background-color: #343a40 !important;
+                    color: white !important;
+                    font-weight: 600;
+                    border-bottom: 2px solid #343a40;
+                }
+                .severity-badge {
+                    display: inline-block;
+                    padding: 0.25em 0.8em;
+                    font-size: 0.875em;
+                    font-weight: 600;
+                    border-radius: 0.25rem;
+                    cursor: pointer;
+                }
+                .severity-high {
+                    background-color: #dc3545;
+                    color: white;
+                }
+                .severity-medium {
+                    background-color: #ffc107;
+                    color: #000;
+                }
+                .severity-low {
+                    background-color: #17a2b8;
+                    color: white;
+                }
+                .table-danger {
+                    background-color: rgba(220, 53, 69, 0.15) !important;
+                }
+                .table-warning {
+                    background-color: rgba(255, 193, 7, 0.15) !important;
+                }
+                .table-info {
+                    background-color: rgba(23, 162, 184, 0.15) !important;
+                }
+                .table-success {
+                    background-color: rgba(40, 167, 69, 0.15) !important;
+                }
+                .table td, .table th {
+                    vertical-align: middle;
+                }
+                .badge {
+                    padding: 0.4em 0.8em;
+                    font-weight: 500;
+                }
+            `}</style>
         </div>
     );
-};
+};  
 
 export default ThreatDetection;

@@ -7,12 +7,197 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import logging
 import traceback
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# Load trained model
+# Load trained model and scaler
 model = joblib.load("ml_model/random_forest_model.pkl")
+scaler = joblib.load("ml_model/scaler.pkl")
+training_features = joblib.load("ml_model/training_features.pkl")
+
+def get_feature_importance_explanation(row_data, severity, attack_type):
+    """Calculate feature importance using Random Forest's built-in feature importances with context-aware explanations."""
+    try:
+        # Prepare the feature vector
+        feature_vector = np.array([row_data[feature] for feature in training_features]).reshape(1, -1)
+        
+        # Scale the features
+        scaled_vector = scaler.transform(feature_vector)
+        
+        importance_data = {}
+        severity_context = {
+            "High": {
+                "threshold_multiplier": 1.5,
+                "description": f"Critical {attack_type} threat detected with high-risk characteristics:"
+            },
+            "Medium": {
+                "threshold_multiplier": 1.0,
+                "description": f"Moderate {attack_type} threat detected with concerning patterns:"
+            },
+            "Low": {
+                "threshold_multiplier": 0.5,
+                "description": f"Low-risk {attack_type} activity with minimal threat indicators:"
+            }
+        }
+        
+        # Get feature importances from Random Forest
+        if hasattr(model, 'feature_importances_'):
+            importances = model.feature_importances_
+            # Get indices of top 5 most important features
+            feature_indices = np.argsort(importances)[-5:][::-1]
+            
+            # Define thresholds for different features
+            feature_thresholds = {
+                'flow_duration': 1000000,  # 1 second in microseconds
+                'total_fwd_packets': 100,
+                'total_backward_packets': 100,
+                'total_length_of_fwd_packets': 1000000,  # 1MB in bytes
+                'total_length_of_bwd_packets': 1000000,  # 1MB in bytes
+                'flow_packets/s': 1000,
+                'flow_bytes/s': 1000000,
+                'flow_iat_mean': 500000,  # 0.5 seconds in microseconds
+                'active_mean': 500000,
+                'idle_mean': 500000,
+                'fwd_psh_flags': 10,
+                'bwd_psh_flags': 10
+            }
+            
+            for idx in feature_indices:
+                feature_name = training_features[idx]
+                feature_value = float(row_data[feature_name])
+                importance_score = float(importances[idx])
+                
+                # Get baseline statistics for this feature
+                feature_mean = float(scaler.mean_[idx])
+                feature_std = float(np.sqrt(scaler.var_[idx]))
+                z_score = (feature_value - feature_mean) / (feature_std if feature_std > 0 else 1)
+                
+                # Get threshold for this feature
+                threshold = feature_thresholds.get(feature_name, feature_mean + feature_std)
+                adjusted_threshold = threshold * severity_context[severity]["threshold_multiplier"]
+                
+                # Determine impact and context based on feature type and value
+                impact_direction = "increases" if (z_score > 0 and severity != "Low") or (z_score < 0 and severity == "Low") else "decreases"
+                
+                # Generate context-specific explanation
+                context = get_feature_context(feature_name, feature_value, adjusted_threshold, severity, attack_type)
+                
+                importance_data[feature_name] = {
+                    'value': feature_value,
+                    'importance': importance_score * 100,  # Convert to percentage
+                    'impact': impact_direction,
+                    'context': context
+                }
+        
+        return json.dumps({
+            'feature_importance': importance_data,
+            'severity_level': severity,
+            'explanation': severity_context[severity]["description"]
+        })
+    
+    except Exception as e:
+        logging.error(f"Error calculating feature importance: {e}")
+        return json.dumps({
+            'error': str(e),
+            'severity_level': severity,
+            'explanation': "Could not calculate feature importance"
+        })
+
+def get_feature_context(feature_name, value, threshold, severity, attack_type):
+    """Generate context-specific explanation for feature values with attack-specific insights."""
+    
+    # Format large numbers for readability
+    def format_number(n):
+        if n >= 1_000_000:
+            return f"{n/1_000_000:.2f}M"
+        elif n >= 1_000:
+            return f"{n/1_000:.2f}K"
+        return f"{n:.2f}"
+    
+    # Define attack-specific patterns
+    attack_patterns = {
+        'DDoS': {
+            'flow_packets/s': "High packet rate typical of DDoS attacks",
+            'flow_bytes/s': "Large bandwidth consumption characteristic of DDoS",
+            'total_fwd_packets': "Massive number of packets from source",
+            'flow_duration': "Sustained attack duration"
+        },
+        'PortScan': {
+            'flow_duration': "Short duration typical of port scanning",
+            'total_fwd_packets': "Multiple connection attempts",
+            'flow_packets/s': "Rapid packet rate indicating scanning activity"
+        },
+        'SQL Injection': {
+            'total_length_of_fwd_packets': "Large payload size typical of SQL injection",
+            'flow_duration': "Longer duration for complex queries",
+            'fwd_psh_flags': "Multiple PSH flags indicating data transmission"
+        },
+        'XSS': {
+            'total_length_of_fwd_packets': "Script payload size",
+            'flow_duration': "Time taken for script execution",
+            'fwd_psh_flags': "Data transmission patterns"
+        },
+        'BENIGN': {
+            'flow_packets/s': "Normal traffic patterns",
+            'flow_bytes/s': "Standard bandwidth usage",
+            'flow_duration': "Regular session duration"
+        }
+    }
+    
+    # Define feature-specific contexts
+    feature_contexts = {
+        'flow_duration': {
+            'High': lambda v, t, at: f"Unusually long flow duration of {format_number(v)}µs {attack_patterns.get(at, {}).get('flow_duration', 'indicates potential scanning or data exfiltration')}" if v > t else f"Flow duration of {format_number(v)}µs is significant",
+            'Medium': lambda v, t, at: f"Moderate flow duration of {format_number(v)}µs {attack_patterns.get(at, {}).get('flow_duration', 'suggests sustained activity')}" if v > t else f"Flow duration of {format_number(v)}µs is notable",
+            'Low': lambda v, t, at: f"Normal flow duration of {format_number(v)}µs {attack_patterns.get(at, {}).get('flow_duration', 'indicates regular traffic patterns')}"
+        },
+        'total_fwd_packets': {
+            'High': lambda v, t, at: f"High packet count ({format_number(v)}) {attack_patterns.get(at, {}).get('total_fwd_packets', 'suggests potential DoS activity')}" if v > t else f"Elevated packet count ({format_number(v)})",
+            'Medium': lambda v, t, at: f"Moderate packet count ({format_number(v)}) {attack_patterns.get(at, {}).get('total_fwd_packets', 'indicates increased activity')}" if v > t else f"Notable packet count ({format_number(v)})",
+            'Low': lambda v, t, at: f"Normal packet count ({format_number(v)}) {attack_patterns.get(at, {}).get('total_fwd_packets', 'consistent with regular traffic')}"
+        },
+        'flow_packets/s': {
+            'High': lambda v, t, at: f"Very high packet rate ({format_number(v)}/s) {attack_patterns.get(at, {}).get('flow_packets/s', 'indicates potential flooding')}" if v > t else f"Elevated packet rate ({format_number(v)}/s)",
+            'Medium': lambda v, t, at: f"Increased packet rate ({format_number(v)}/s) {attack_patterns.get(at, {}).get('flow_packets/s', 'shows suspicious activity')}" if v > t else f"Notable packet rate ({format_number(v)}/s)",
+            'Low': lambda v, t, at: f"Standard packet rate ({format_number(v)}/s) {attack_patterns.get(at, {}).get('flow_packets/s', 'within normal bounds')}"
+        },
+        'flow_bytes/s': {
+            'High': lambda v, t, at: f"Extremely high bandwidth usage ({format_number(v)} bytes/s) {attack_patterns.get(at, {}).get('flow_bytes/s', 'suggests data exfiltration')}" if v > t else f"High bandwidth usage ({format_number(v)} bytes/s)",
+            'Medium': lambda v, t, at: f"Elevated bandwidth usage ({format_number(v)} bytes/s) {attack_patterns.get(at, {}).get('flow_bytes/s', 'requires attention')}" if v > t else f"Moderate bandwidth usage ({format_number(v)} bytes/s)",
+            'Low': lambda v, t, at: f"Normal bandwidth usage ({format_number(v)} bytes/s) {attack_patterns.get(at, {}).get('flow_bytes/s', '')}"
+        },
+        'total_length_of_fwd_packets': {
+            'High': lambda v, t, at: f"Large payload size ({format_number(v)} bytes) {attack_patterns.get(at, {}).get('total_length_of_fwd_packets', 'suggests malicious content')}" if v > t else f"Significant payload size ({format_number(v)} bytes)",
+            'Medium': lambda v, t, at: f"Moderate payload size ({format_number(v)} bytes) {attack_patterns.get(at, {}).get('total_length_of_fwd_packets', '')}" if v > t else f"Notable payload size ({format_number(v)} bytes)",
+            'Low': lambda v, t, at: f"Normal payload size ({format_number(v)} bytes) {attack_patterns.get(at, {}).get('total_length_of_fwd_packets', '')}"
+        },
+        'fwd_psh_flags': {
+            'High': lambda v, t, at: f"High PSH flag count ({format_number(v)}) {attack_patterns.get(at, {}).get('fwd_psh_flags', 'indicates aggressive data transmission')}" if v > t else f"Elevated PSH flag count ({format_number(v)})",
+            'Medium': lambda v, t, at: f"Moderate PSH flag count ({format_number(v)}) {attack_patterns.get(at, {}).get('fwd_psh_flags', '')}" if v > t else f"Notable PSH flag count ({format_number(v)})",
+            'Low': lambda v, t, at: f"Normal PSH flag count ({format_number(v)}) {attack_patterns.get(at, {}).get('fwd_psh_flags', '')}"
+        },
+        'flow_iat_mean': {
+            'High': lambda v, t, at: f"Unusual inter-arrival time ({format_number(v)}µs) suggests scanning or probing" if v > t else f"Notable inter-arrival time ({format_number(v)}µs)",
+            'Medium': lambda v, t, at: f"Moderate inter-arrival time ({format_number(v)}µs) indicates irregular patterns" if v > t else f"Notable inter-arrival time ({format_number(v)}µs)",
+            'Low': lambda v, t, at: f"Normal inter-arrival time ({format_number(v)}µs) consistent with regular traffic"
+        }
+    }
+    
+    # Get the context function for this feature and severity
+    if feature_name in feature_contexts:
+        context_func = feature_contexts[feature_name].get(severity)
+        if context_func:
+            return context_func(value, threshold, attack_type)
+    
+    # Default context for other features
+    if severity == "High":
+        return f"Value {format_number(value)} exceeds normal threshold" if value > threshold else f"Value {format_number(value)} is significant"
+    elif severity == "Medium":
+        return f"Value {format_number(value)} is above average" if value > threshold else f"Value {format_number(value)} is notable"
+    else:
+        return f"Value {format_number(value)} is within normal range"
 
 # Load dataset with details
 df_details = pd.read_csv("dataset/cleaned_data_with_details.csv")
@@ -133,10 +318,10 @@ async def predict(features: Features):
                 attacker_ip = random_pair[0]
                 victim_ip = random_pair[1]
                 attack_type = random_row["Attack Type"]
-                
-                # Get severity and explanation from the dataset
                 severity = random_row.get("Severity", "Unknown")
-                severity_explanation = random_row.get("Severity Explanation", "No explanation available")
+                
+                # Calculate feature importance explanation with attack type
+                severity_explanation = get_feature_importance_explanation(random_row, severity, attack_type)
                 
                 logging.info(f"Found severity: {severity}")
             else:
@@ -146,7 +331,11 @@ async def predict(features: Features):
             victim_ip = "Unknown"
             attack_type = attack_label
             severity = ATTACK_SEVERITY_MAPPING.get(attack_label, "Low")
-            severity_explanation = f'Default severity for {attack_label}'
+            severity_explanation = json.dumps({
+                'error': 'No matching data found',
+                'severity_level': severity,
+                'explanation': f'Default severity for {attack_type}'
+            })
 
         logging.info(f"Returning: attacker_ip={attacker_ip}, victim_ip={victim_ip}, attack_type={attack_type}, severity={severity}")
 

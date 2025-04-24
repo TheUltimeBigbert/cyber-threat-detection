@@ -1,16 +1,19 @@
+import React from 'react';
 import { Link } from 'react-router-dom';
+import { Nav, Navbar } from 'react-bootstrap';
 
 function Navigation() {
     return (
-        <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
-            <div className="container">
-                <Link className="navbar-brand" to="/">Cyber Security System</Link>
-                <div className="navbar-nav">
-                    <Link className="nav-link" to="/threats">Threat Detection</Link>
-                    <Link className="nav-link" to="/dashboard">Dashboard</Link>
-                </div>
-            </div>
-        </nav>
+        <Navbar bg="dark" variant="dark" expand="lg">
+            <Navbar.Brand as={Link} to="/">Cyber Threat Detection</Navbar.Brand>
+            <Navbar.Toggle aria-controls="basic-navbar-nav" />
+            <Navbar.Collapse id="basic-navbar-nav">
+                <Nav className="mr-auto">
+                    <Nav.Link as={Link} to="/dashboard">Dashboard</Nav.Link>
+                    <Nav.Link as={Link} to="/detection">Threat Detection</Nav.Link>
+                </Nav>
+            </Navbar.Collapse>
+        </Navbar>
     );
 }
 
