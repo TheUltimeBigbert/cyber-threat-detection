@@ -151,7 +151,7 @@ export const ThreatProvider = ({ children }) => {
                 });
                 
                 handleDetectThreat([attackLabel]);
-            }, 5000);
+            }, 8000);
 
             return () => {
                 console.log("Cleaning up threat detection interval");

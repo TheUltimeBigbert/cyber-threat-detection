@@ -13,7 +13,7 @@ function LandingPage() {
           <h1>Enhancing Cybersecurity with Machine Learning</h1>
           <p>Detect, Analyze, and Prevent Cyber Threats in Real-Time.</p>
 
-          <button className="monitoring-btn" onClick={() => navigate("/threat-detection")}>
+          <button className="monitoring-btn" onClick={() => navigate("/dashboard")}>
             START MONITORING
           </button>
 
